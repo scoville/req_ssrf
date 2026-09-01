@@ -5,43 +5,52 @@ env:
   OTP_VERSION: "29"
 
 on:
-  push:
-    tags:
-      - '[0-9]+.[0-9]+.[0-9]+'
+  release:
+    types:
+      - published
 
 permissions:
   contents: read
+
+# Do not cancel in-progress workflows, because `mix hex.publish` uploads the
+# package and the documentation, and cancelling between the two would publish
+# one without the other.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
     name: Publish Hex package
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    environment: hex
     steps:
       - name: Git clone the repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: 0
+          ref: ${{ github.event.release.tag_name }}
           persist-credentials: false
 
       - name: Set up Elixir
-        id: beam
         uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - name: Restore dependencies and build cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            _build
-            deps
-          key: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
-
       - name: Install Dependencies
         run: mix deps.get
+
+      - name: Assert the version matches the release tag
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version="$(mix eval 'IO.puts(Mix.Project.config()[:version])')"
+
+          if [ "$version" != "$TAG" ]; then
+            echo "mix.exs version $version does not match tag $TAG" >&2
+            exit 1
+          fi
 
       - name: Publish to Hex
         run: mix hex.publish --yes

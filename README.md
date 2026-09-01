@@ -14,6 +14,18 @@ def deps do
 end
 ```
 
+## Requirements
+
+ReqSSRF runs on the currently supported
+[Elixir versions](https://elixir.hexdocs.pm/compatibility-and-deprecations.html)
+and the compatible
+[OTP versions](https://elixir.hexdocs.pm/compatibility-and-deprecations.html#between-elixir-and-erlang-otp).
+OTP 24 is not supported, because Finch uses an option that was introduced in
+OTP 25.
+
+Versions older than the ones the CI matrix covers may still work, but they are
+not covered by CI and not officially supported.
+
 ## Server Side Request Forgery
 
 A server that fetches a URL an outsider supplied can be pointed at the network
@@ -43,9 +55,12 @@ For a URL that may not be fetched, `Req.request/2` returns
 `{:error, %ReqSSRF.BlockedError{}}` and `Req.request!/2` raises it. The error
 names the URL and the reason.
 
+Attach the plugin after any other plugin that can change the URL.
+
 `ReqSSRF.check/2` and `ReqSSRF.allowed?/2` check a single URL. Only use them
 when you are not making the request, for example if you are validating a URL
-the user is saving.
+the user is saving. Check it again using `ReqSSRF.attach/2` when you make an
+HTTP request.
 
 ### Options
 
@@ -73,10 +88,13 @@ or give them a URL that resolves publicly.
   in whatever notation it is written, so `127.0.0.1`, `2130706433`,
   `0177.0.0.1` and `[::ffff:127.0.0.1]` are all refused. Pass
   `allow_ip_address: false` to refuse literal hosts outright.
-- A name is resolved with `:inet.getaddrs/2`, the resolver `Finch` uses, so
-  the check and the request that follows ask the same resolver. Every address
-  in the answer has to be one the internet can route to.
+- A name is resolved with `:inet.getaddrs/2` for both address families, and
+  every address in the answer has to be one the internet can route to.
 - A host that does not resolve is refused.
+- The check reads more addresses than the request uses. `Req` connects over
+  IPv4 unless you configure it otherwise, but the check reads the AAAA records
+  too. A name whose A record is public and whose AAAA record is reserved is
+  refused.
 
 ## What the check does not do
 
@@ -97,6 +115,15 @@ controls can reach any address the server routes to. Deny egress to the
 private ranges and the metadata endpoint at the network if that is not
 acceptable. That also covers the fetches nobody remembered to check, which
 this library cannot.
+
+The check also cannot tell a failed lookup from a missing record. A resolver
+that times out and a name that has no record of that family both come back as
+`:nxdomain`, because OTP collapses every error into that one reason. So a
+family whose lookup failed looks like a family with no addresses, and the check
+rests on what the other family answered. A name whose A lookup fails and whose
+AAAA record is public passes the check, and the request then connects over the
+A record, which nothing checked. The mitigation is the same as for DNS
+rebinding.
 
 ## What else the check leaves open
 
