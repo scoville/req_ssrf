@@ -12,7 +12,8 @@ defmodule ReqSSRF.BlockedErrorTest do
         ip_address: "an IP address",
         unresolvable_host: "does not resolve",
         resolution_failed: "could not be resolved",
-        reserved_address: "not on the internet"
+        reserved_address: "not on the internet",
+        denied_address: "denied range"
       ]
 
       for {reason, description} <- reasons do
