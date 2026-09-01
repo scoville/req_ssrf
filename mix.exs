@@ -87,7 +87,8 @@ defmodule ReqSSRF.MixProject do
       {:inet_cidr, "~> 1.0"},
       {:makeup_diff, "== 0.1.1", only: :dev, runtime: false},
       {:plug, "~> 1.0", only: :test},
-      {:req, "~> 0.7"}
+      {:req, "~> 0.7"},
+      {:telemetry, "~> 1.0"}
     ]
   end
 
