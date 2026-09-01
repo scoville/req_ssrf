@@ -114,3 +114,14 @@ jobs:
         run: mix deps.get
       - name: Run Tests
         run: mix test --warnings-as-errors
+
+  matrix-results:
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    name: Elixir version tests
+    timeout-minutes: 5
+    needs:
+      - test-versions
+    steps:
+      - if: ${{ needs.test-versions.result != 'success' }}
+        run: exit 1
