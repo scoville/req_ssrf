@@ -31,6 +31,7 @@ defmodule ReqSSRF do
 
   @defaults [
     allow_ip_address: true,
+    deny: [],
     schemes: @default_schemes,
     timeout: @default_timeout
   ]
@@ -93,12 +94,15 @@ defmodule ReqSSRF do
           | :unresolvable_host
           | :resolution_failed
           | :reserved_address
+          | :denied_address
 
   @typedoc """
   Options for `check/2` and `allowed?/2`.
 
   - `:allow_ip_address` - whether a host written as an IP address is accepted.
     Defaults to `true`.
+  - `:deny` - additional address ranges to refuse, as a list of CIDR strings.
+    Defaults to `[]`.
   - `:schemes` - the accepted URL schemes. Defaults to
     `#{inspect(@default_schemes)}`.
   - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
@@ -107,6 +111,7 @@ defmodule ReqSSRF do
   """
   @type opts :: [
           allow_ip_address: boolean,
+          deny: [String.t()],
           schemes: [String.t()],
           timeout: timeout()
         ]
@@ -150,11 +155,7 @@ defmodule ReqSSRF do
 
     with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
          {:ok, addresses} <- resolve(uri.host, opts) do
-      if Enum.all?(addresses, &public_address?/1) do
-        :ok
-      else
-        {:error, :reserved_address}
-      end
+      check_addresses(addresses, Keyword.fetch!(opts, :deny))
     end
   end
 
@@ -235,6 +236,20 @@ defmodule ReqSSRF do
     end
   end
 
+  defp validate_value!(:deny, value) do
+    if is_list(value) and Enum.all?(value, &valid_cidr?/1) do
+      value
+    else
+      raise ArgumentError, """
+      invalid :deny option
+
+      Expected a list of CIDR strings, e.g. ["10.0.0.0/8", "2001:db8::/32"].
+
+          value: #{inspect(value)}
+      """
+    end
+  end
+
   defp validate_value!(:timeout, value) do
     if value == :infinity or (is_integer(value) and value >= 0) do
       value
@@ -263,6 +278,30 @@ defmodule ReqSSRF do
           value: #{inspect(value)}
       """
     end
+  end
+
+  defp valid_cidr?(cidr) do
+    is_binary(cidr) and match?({:ok, _}, InetCidr.parse_cidr(cidr))
+  end
+
+  defp check_addresses(addresses, deny) do
+    addresses = Enum.map(addresses, &unmap/1)
+    ranges = Enum.map(deny, &InetCidr.parse_cidr!/1)
+
+    cond do
+      not Enum.all?(addresses, &public_address?/1) ->
+        {:error, :reserved_address}
+
+      Enum.any?(addresses, &denied?(&1, ranges)) ->
+        {:error, :denied_address}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp denied?(address, ranges) do
+    Enum.any?(ranges, &InetCidr.contains?(&1, address))
   end
 
   defp check_scheme(%URI{scheme: scheme}, schemes) do

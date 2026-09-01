@@ -64,11 +64,13 @@ HTTP request.
 
 ### Options
 
-`ReqSSRF.attach/2` takes three options:
+`ReqSSRF.attach/2` takes four options:
 
 - `:schemes` - the accepted URL schemes. Defaults to `["http", "https"]`.
 - `:allow_ip_address` - whether a host written as an IP address is accepted.
   Defaults to `true`.
+- `:deny` - additional address ranges to refuse, as a list of CIDR strings,
+  such as `["10.0.0.0/8"]`. Defaults to `[]`.
 - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
   `:infinity`. Defaults to `2000`.
 

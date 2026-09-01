@@ -41,6 +41,7 @@ defmodule ReqSSRF.BlockedError do
   defp describe(:unresolvable_host), do: "the host does not resolve"
   defp describe(:resolution_failed), do: "the host could not be resolved"
   defp describe(:reserved_address), do: "the host is not on the internet"
+  defp describe(:denied_address), do: "the host is in a denied range"
 
   defimpl Inspect do
     import Inspect.Algebra

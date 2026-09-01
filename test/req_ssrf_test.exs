@@ -101,6 +101,36 @@ defmodule ReqSSRFTest do
              ]
     end
 
+    test "refuses an address in a denied range" do
+      opts = [deny: ["8.8.8.0/24", "2606:4700::/32"]]
+
+      assert ReqSSRF.check("http://8.8.8.8/", opts) ==
+               {:error, :denied_address}
+
+      assert ReqSSRF.check("http://[2606:4700:4700::1111]/", opts) ==
+               {:error, :denied_address}
+
+      assert ReqSSRF.check("http://[::ffff:8.8.8.8]/", opts) ==
+               {:error, :denied_address}
+    end
+
+    test "allows an address outside the denied ranges" do
+      assert ReqSSRF.check("http://8.8.8.8/", deny: ["10.0.0.0/8"]) == :ok
+    end
+
+    test "reports a reserved address as reserved even when also denied" do
+      assert ReqSSRF.check("http://127.0.0.1/", deny: ["127.0.0.0/8"]) ==
+               {:error, :reserved_address}
+    end
+
+    test "raises on a deny list that is not CIDR strings" do
+      for value <- ["10.0.0.0/8", [:x], ["nonsense"], ["10.0.0.0/33"], nil] do
+        assert_raise ArgumentError, ~r/invalid :deny option/, fn ->
+          ReqSSRF.check("http://8.8.8.8/", deny: value)
+        end
+      end
+    end
+
     test "rejects a scheme that is not allowed" do
       assert ReqSSRF.check("file:///etc/passwd") ==
                {:error, :unsupported_scheme}
@@ -451,6 +481,30 @@ defmodule ReqSSRFTest do
 
       assert {:error, %BlockedError{reason: :ip_address}} =
                Req.get(request, url: "http://8.8.8.8/")
+    end
+
+    test "refuses a denied range, and keeps it across a request override" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach(deny: ["8.8.8.0/24"])
+
+      assert {:error, %BlockedError{reason: :denied_address}} =
+               Req.get(request, url: "http://8.8.8.8/")
+
+      assert {:error, %BlockedError{reason: :denied_address}} =
+               Req.get(request,
+                 url: "http://8.8.8.8/",
+                 ssrf_check: [timeout: 50]
+               )
+    end
+
+    test "raises on a malformed range when attaching" do
+      assert_raise ArgumentError, ~r/invalid :deny option/, fn ->
+        ReqSSRF.attach(Req.new(), deny: ["nonsense"])
+      end
     end
 
     test "halts a request whose host does not resolve in time" do
