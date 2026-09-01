@@ -18,6 +18,8 @@ defmodule ReqSSRF do
   in the answer has to be one the internet can route to. A host that does not
   resolve is refused.
 
+  The reserved ranges are listed under `public_address?/1`.
+
   ## Use the step, not the predicate
 
   `allowed?/2` and `check/2` check a single URL. That is not enough on its own,
@@ -207,6 +209,19 @@ defmodule ReqSSRF do
   An IPv4-mapped IPv6 address points to the same host as its IPv4 form and is
   matched against the IPv4 ranges.
 
+  ## Reserved ranges
+
+  An IPv4 address is refused if it falls in one of the IANA special-purpose
+  ranges. `168.63.129.16/32` among them is Azure's host endpoint.
+
+  #{Enum.map_join(@ipv4_ranges, "\n", &"- `#{&1}`")}
+
+  For IPv6, `#{@global_unicast}` is the only range IANA has allocated for
+  global unicast, so an address outside it is refused without enumerating
+  anything. These special-purpose ranges inside it are refused as well.
+
+  #{Enum.map_join(@ipv6_ranges, "\n", &"- `#{&1}`")}
+
   ## Examples
 
       iex> public_address?({8, 8, 8, 8})
@@ -288,8 +303,8 @@ defmodule ReqSSRF do
   `{:error, %ReqSSRF.BlockedError{}}` and `Req.request!/2` raises it.
 
   Takes the same options as `check/2`. They are stored under the single
-  `:ssrf_check` request option. Pass `ssrf_check: false` on a request to skip the
-  check.
+  `:ssrf_check` request option. Pass `ssrf_check: false` on a request to skip
+  the check.
 
   ## Examples
 
