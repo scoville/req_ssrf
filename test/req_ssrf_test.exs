@@ -118,6 +118,27 @@ defmodule ReqSSRFTest do
       assert ReqSSRF.check("") == {:error, :unsupported_scheme}
     end
 
+    test "refuses a name that does not resolve within the timeout" do
+      assert ReqSSRF.check("http://example.com/", timeout: 0) ==
+               {:error, :resolution_failed}
+    end
+
+    test "does not apply the timeout to an address literal" do
+      assert ReqSSRF.check("http://8.8.8.8/", timeout: 0) == :ok
+    end
+
+    test "raises on a timeout that is not a number of milliseconds" do
+      for value <- [-1, "1000", nil, :forever, 1.5] do
+        assert_raise ArgumentError, ~r/invalid :timeout option/, fn ->
+          ReqSSRF.check("http://8.8.8.8/", timeout: value)
+        end
+      end
+    end
+
+    test "accepts an infinite timeout" do
+      assert ReqSSRF.check("http://8.8.8.8/", timeout: :infinity) == :ok
+    end
+
     test "rejects a host that does not resolve" do
       assert ReqSSRF.check("http://nonexistent.invalid/") ==
                {:error, :unresolvable_host}
@@ -430,6 +451,18 @@ defmodule ReqSSRFTest do
 
       assert {:error, %BlockedError{reason: :ip_address}} =
                Req.get(request, url: "http://8.8.8.8/")
+    end
+
+    test "halts a request whose host does not resolve in time" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach(timeout: 0)
+
+      assert {:error, %BlockedError{reason: :resolution_failed}} =
+               Req.get(request, url: "http://example.com/")
     end
 
     test "emits telemetry when it refuses a URL" do

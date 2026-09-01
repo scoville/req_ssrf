@@ -64,11 +64,13 @@ HTTP request.
 
 ### Options
 
-`ReqSSRF.attach/2` takes two options:
+`ReqSSRF.attach/2` takes three options:
 
 - `:schemes` - the accepted URL schemes. Defaults to `["http", "https"]`.
 - `:allow_ip_address` - whether a host written as an IP address is accepted.
   Defaults to `true`.
+- `:timeout` - how long to wait for a name to resolve, in milliseconds, or
+  `:infinity`. Defaults to `2000`.
 
 They are stored under the single `:ssrf_check` request option. Pass
 `ssrf_check: false` on a request to skip the check.
@@ -116,14 +118,18 @@ private ranges and the metadata endpoint at the network if that is not
 acceptable. That also covers the fetches nobody remembered to check, which
 this library cannot.
 
-The check also cannot tell a failed lookup from a missing record. A resolver
-that times out and a name that has no record of that family both come back as
+The check mostly cannot tell a failed lookup from a missing record. A resolver
+that refuses and a name that has no record of that family both come back as
 `:nxdomain`, because OTP collapses every error into that one reason. So a
 family whose lookup failed looks like a family with no addresses, and the check
 rests on what the other family answered. A name whose A lookup fails and whose
 AAAA record is public passes the check, and the request then connects over the
 A record, which nothing checked. The mitigation is the same as for DNS
 rebinding.
+
+The exception is the `:timeout`, which the library imposes itself and can
+therefore recognise. A lookup that misses that deadline is refused with
+`:resolution_failed` rather than being read as a family with no records.
 
 ## What else the check leaves open
 
