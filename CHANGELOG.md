@@ -5,6 +5,8 @@ format. This project adheres to [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-01
+
 ### Added
 
 - Add `ReqSSRF.attach/2`, which checks every hop of a `Req` request and halts
@@ -12,4 +14,5 @@ format. This project adheres to [Semantic Versioning](https://semver.org/spec/v2
 - Add `ReqSSRF.check/2` and `ReqSSRF.allowed?/2` for validating a single URL,
   and `ReqSSRF.public_address?/1` for a single IP address.
 
-[Unreleased]: https://github.com/scoville/req_ssrf/commits/main
+[Unreleased]: https://github.com/scoville/req_ssrf/compare/0.1.0...HEAD
+[0.1.0]: https://github.com/scoville/req_ssrf/releases/tag/0.1.0
