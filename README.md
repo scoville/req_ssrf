@@ -64,13 +64,16 @@ HTTP request.
 
 ### Options
 
-`ReqSSRF.attach/2` takes four options:
+`ReqSSRF.attach/2` takes five options:
 
 - `:schemes` - the accepted URL schemes. Defaults to `["http", "https"]`.
 - `:allow_ip_address` - whether a host written as an IP address is accepted.
   Defaults to `true`.
 - `:deny` - additional address ranges to refuse, as a list of CIDR strings,
   such as `["10.0.0.0/8"]`. Defaults to `[]`.
+- `:resolver` - the function used to resolve a name, for tests that must not
+  touch the network. Defaults to `&:inet.getaddrs/3`, which is also the
+  contract it has to mirror. There is no reason to set it in production.
 - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
   `:infinity`. Defaults to `2000`.
 
@@ -83,6 +86,19 @@ The check runs before the adapter, so it also runs when `Req.Test` has
 replaced the adapter with a stub, and a stub on `http://localhost` is refused
 like any other reserved address. Pass `ssrf_check: false` on those requests,
 or give them a URL that resolves publicly.
+
+If you validate a URL with `ReqSSRF.check/2` outside a request, in a changeset
+for example, then your tests resolve real names every time they build one.
+Set the `:resolver` option to avoid this:
+
+```elixir
+resolver = fn
+  _host, :inet, _timeout -> {:ok, [{8, 8, 8, 8}]}
+  _host, :inet6, _timeout -> {:error, :nxdomain}
+end
+
+ReqSSRF.check(url, resolver: resolver)
+```
 
 ## What the check does
 
