@@ -45,7 +45,7 @@ jobs:
         env:
           TAG: ${{ github.event.release.tag_name }}
         run: |
-          version="$(mix eval 'IO.puts(Mix.Project.config()[:version])')"
+          version="$(mix eval --no-compile 'IO.puts(Mix.Project.config()[:version])')"
 
           if [ "$version" != "$TAG" ]; then
             echo "mix.exs version $version does not match tag $TAG" >&2
