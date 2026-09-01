@@ -14,7 +14,7 @@ defmodule ReqSSRF.MixProject do
       description: description(),
       package: package(),
       docs: docs(),
-      elixir: "~> 1.15",
+      elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       test_coverage: [tool: ExCoveralls],
