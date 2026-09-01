@@ -56,6 +56,14 @@ defmodule ReqSSRF do
   @parsed_ipv4_ranges Enum.map(@ipv4_ranges, &InetCidr.parse_cidr!/1)
   @parsed_ipv6_ranges Enum.map(@ipv6_ranges, &InetCidr.parse_cidr!/1)
 
+  defguardp is_ipv4(a, b, c, d)
+            when a in 0..255 and b in 0..255 and c in 0..255 and d in 0..255
+
+  defguardp is_ipv6(a, b, c, d, e, f, g, h)
+            when a in 0..0xFFFF and b in 0..0xFFFF and c in 0..0xFFFF and
+                   d in 0..0xFFFF and e in 0..0xFFFF and f in 0..0xFFFF and
+                   g in 0..0xFFFF and h in 0..0xFFFF
+
   @typedoc """
   The reason why a URL may not be fetched.
   """
@@ -173,7 +181,12 @@ defmodule ReqSSRF do
       false
   """
   @spec public_address?(:inet.ip_address()) :: boolean
-  def public_address?(address) when tuple_size(address) in [4, 8] do
+  def public_address?({a, b, c, d} = address) when is_ipv4(a, b, c, d) do
+    not reserved?(address)
+  end
+
+  def public_address?({a, b, c, d, e, f, g, h} = address)
+      when is_ipv6(a, b, c, d, e, f, g, h) do
     not reserved?(unmap(address))
   end
 

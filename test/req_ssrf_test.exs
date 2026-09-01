@@ -197,6 +197,20 @@ defmodule ReqSSRFTest do
       refute ReqSSRF.public_address?({0x3FFF, 0, 0, 0, 0, 0, 0, 1})
     end
 
+    test "raises on a tuple that is not an IP address" do
+      for value <- [
+            {999, 0, 0, 1},
+            {-1, 0, 0, 1},
+            {0, 0, 0, 0, 0, 0, 0, 0x10000},
+            {1, 2, 3},
+            "8.8.8.8"
+          ] do
+        assert_raise FunctionClauseError, fn ->
+          ReqSSRF.public_address?(value)
+        end
+      end
+    end
+
     test "matches an IPv4-mapped address against the IPv4 ranges" do
       # ::ffff:169.254.169.254 and ::ffff:8.8.8.8
       refute ReqSSRF.public_address?({0, 0, 0, 0, 0, 0xFFFF, 0xA9FE, 0xA9FE})
