@@ -108,8 +108,10 @@ ReqSSRF.check(url, resolver: resolver)
   in whatever notation it is written, so `127.0.0.1`, `2130706433`,
   `0177.0.0.1` and `[::ffff:127.0.0.1]` are all refused. Pass
   `allow_ip_address: false` to refuse literal hosts outright.
-- A name is resolved with `:inet.getaddrs/2` for both address families, and
-  every address in the answer has to be one the internet can route to.
+- A name is resolved with
+  [`:inet.getaddrs/3`](https://www.erlang.org/doc/apps/kernel/inet.html#getaddrs/3)
+  for both address families, and every address in the answer has to be one the
+  internet can route to.
 - A host that does not resolve is refused.
 - The check reads more addresses than the request uses. `Req` connects over
   IPv4 unless you configure it otherwise, but the check reads the AAAA records
@@ -125,10 +127,10 @@ reserved address. This is DNS rebinding. It needs a nameserver the attacker
 controls, while the redirect that `ReqSSRF.attach/2` closes needs only one
 response header.
 
-The library does not close it. Closing it in the application means connecting
-to the validated address while keeping the `Host` header, the TLS server name
-and the certificate hostname check, and getting any of the three wrong turns
-certificate verification off without saying so.
+The library does not close it. Pinning the connection to the validated address
+means passing the name as a connect option, and `Req` starts a `Finch` instance
+per distinct set of connect options and never stops them, so a few thousand
+submitted names would take the node down.
 
 Using the check therefore means accepting that a host whose DNS the attacker
 controls can reach any address the server routes to. Deny egress to the
@@ -152,7 +154,7 @@ therefore recognise. A lookup that misses that deadline is refused with
 ## What else the check leaves open
 
 Nothing connects to a refused URL, so a user cannot find out what is listening
-on an internal address. Two things remain.
+on an internal address. Three things remain.
 
 The first is the reason for a refusal. `ReqSSRF.BlockedError` says whether the
 name failed to resolve or resolved to a reserved address, which tells a user
@@ -166,6 +168,10 @@ from your server's address rather than theirs. Yours is the address in the
 target's logs and the one blocked for abuse, and a service that allowlists
 your IP range will take a request from your server that it would refuse from
 the user. Rate limit the paths that fetch on a user's behalf.
+
+The third is what the fetches leave behind. `Req` opens a pool per host and
+never closes it. Set `:pool_max_idle_time` on your own `Finch` pool to retire
+the idle ones.
 
 ## Open redirects
 
