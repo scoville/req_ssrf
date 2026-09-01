@@ -16,6 +16,7 @@ defmodule ReqSSRF.MixProject do
       docs: docs(),
       elixir: "~> 1.16",
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps(),
       test_coverage: [tool: ExCoveralls],
       dialyzer: [
@@ -46,7 +47,8 @@ defmodule ReqSSRF.MixProject do
         "coveralls.detail": :test,
         "coveralls.html": :test,
         "coveralls.json": :test,
-        "coveralls.github": :test
+        "coveralls.github": :test,
+        precommit: :test
       ]
     ]
   end
@@ -58,6 +60,19 @@ defmodule ReqSSRF.MixProject do
     ]
   end
 
+  defp aliases do
+    [
+      precommit: [
+        "compile --warnings-as-errors",
+        "format",
+        "credo",
+        "coveralls --warnings-as-errors",
+        "dialyzer",
+        "docs --warnings-as-errors"
+      ]
+    ]
+  end
+
   defp description do
     "Req plugin that prevents Server Side Request Forgery"
   end
@@ -66,8 +81,8 @@ defmodule ReqSSRF.MixProject do
   defp deps do
     [
       {:credo, "== 1.7.19", only: [:dev, :test], runtime: false},
-      {:dialyxir, "== 1.4.7", only: [:dev], runtime: false},
-      {:ex_doc, "== 0.40.3", only: :dev, runtime: false},
+      {:dialyxir, "== 1.4.7", only: [:dev, :test], runtime: false},
+      {:ex_doc, "== 0.40.3", only: [:dev, :test], runtime: false},
       {:excoveralls, "== 0.18.5", only: :test},
       {:inet_cidr, "~> 1.0"},
       {:makeup_diff, "== 0.1.1", only: :dev, runtime: false},
