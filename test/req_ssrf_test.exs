@@ -94,6 +94,34 @@ defmodule ReqSSRFTest do
         ReqSSRF.check("http://8.8.8.8/", allow_ip_addresses: false)
       end
     end
+
+    test "raises on an allow_ip_address that is not a boolean" do
+      for value <- [nil, "yes", 1, :yes] do
+        assert_raise ArgumentError,
+                     ~r/invalid :allow_ip_address option/,
+                     fn ->
+                       ReqSSRF.check("http://8.8.8.8/",
+                         allow_ip_address: value
+                       )
+                     end
+      end
+    end
+
+    test "reads a scheme regardless of case" do
+      assert ReqSSRF.check("http://8.8.8.8/", schemes: ["HTTP"]) == :ok
+      assert ReqSSRF.check("HTTP://8.8.8.8/", schemes: ["http"]) == :ok
+
+      assert ReqSSRF.check("http://8.8.8.8/", schemes: ["HTTPS"]) ==
+               {:error, :unsupported_scheme}
+    end
+
+    test "raises on schemes that are not a non-empty list of strings" do
+      for value <- ["https", [:http], [], ["http", :https], nil] do
+        assert_raise ArgumentError, ~r/invalid :schemes option/, fn ->
+          ReqSSRF.check("http://8.8.8.8/", schemes: value)
+        end
+      end
+    end
   end
 
   describe "allowed?/2" do
@@ -234,6 +262,95 @@ defmodule ReqSSRFTest do
                Req.get(request, url: "http://127.0.0.1/", ssrf_check: false)
     end
 
+    test "runs the check with the attached options when ssrf_check is true" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach(allow_ip_address: false)
+
+      assert {:error, %BlockedError{reason: :ip_address}} =
+               Req.get(request, url: "http://8.8.8.8/", ssrf_check: true)
+    end
+
+    test "keeps the attached options a request does not override" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach(allow_ip_address: false)
+
+      assert {:error, %BlockedError{reason: :ip_address}} =
+               Req.get(request,
+                 url: "http://8.8.8.8/",
+                 ssrf_check: [schemes: ["http"]]
+               )
+
+      assert {:error, %BlockedError{reason: :unsupported_scheme}} =
+               Req.get(request,
+                 url: "http://8.8.8.8/",
+                 ssrf_check: [schemes: ["https"], allow_ip_address: true]
+               )
+    end
+
+    test "overrides an attached option for a single request" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach(allow_ip_address: false)
+
+      assert {:ok, %Req.Response{status: 200}} =
+               Req.get(request,
+                 url: "http://8.8.8.8/",
+                 ssrf_check: [allow_ip_address: true]
+               )
+    end
+
+    test "raises on an ssrf_check value that is neither a boolean nor options" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+
+      for value <- [nil, %{}, :yes, 1, "false"] do
+        assert_raise ArgumentError, ~r/invalid :ssrf_check option/, fn ->
+          Req.get(request, url: "http://127.0.0.1/", ssrf_check: value)
+        end
+      end
+    end
+
+    test "raises when the ssrf_check option was removed" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+        |> Req.Request.delete_option(:ssrf_check)
+
+      assert_raise ArgumentError, ~r/invalid :ssrf_check option/, fn ->
+        Req.get(request, url: "http://127.0.0.1/")
+      end
+    end
+
+    test "checks the request when ssrf_check is an empty list" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+
+      assert {:error, %BlockedError{reason: :reserved_address}} =
+               Req.get(request, url: "http://127.0.0.1/", ssrf_check: [])
+    end
+
     test "passes its options to the check" do
       Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
 
@@ -249,6 +366,32 @@ defmodule ReqSSRFTest do
     test "raises on an unknown option" do
       assert_raise ArgumentError, fn ->
         ReqSSRF.attach(Req.new(), allow_ip_addresses: false)
+      end
+    end
+
+    test "raises on an invalid option value when attaching" do
+      assert_raise ArgumentError, ~r/invalid :schemes option/, fn ->
+        ReqSSRF.attach(Req.new(), schemes: "https")
+      end
+
+      assert_raise ArgumentError, ~r/invalid :allow_ip_address option/, fn ->
+        ReqSSRF.attach(Req.new(), allow_ip_address: nil)
+      end
+    end
+
+    test "raises on an invalid option value overridden on a request" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+
+      assert_raise ArgumentError, ~r/invalid :allow_ip_address option/, fn ->
+        Req.get(request,
+          url: "http://8.8.8.8/",
+          ssrf_check: [allow_ip_address: nil]
+        )
       end
     end
   end

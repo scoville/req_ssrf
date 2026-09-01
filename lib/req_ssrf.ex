@@ -110,10 +110,9 @@ defmodule ReqSSRF do
 
   def check(%URI{} = uri, opts) do
     opts =
-      Keyword.validate!(opts,
-        allow_ip_address: true,
-        schemes: @default_schemes
-      )
+      opts
+      |> Keyword.validate!(allow_ip_address: true, schemes: @default_schemes)
+      |> validate_values!()
 
     with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
          {:ok, addresses} <-
@@ -178,6 +177,40 @@ defmodule ReqSSRF do
     not reserved?(unmap(address))
   end
 
+  defp validate_values!(opts) do
+    Keyword.new(opts, fn {key, value} -> {key, validate_value!(key, value)} end)
+  end
+
+  defp validate_value!(:allow_ip_address, value) do
+    if is_boolean(value) do
+      value
+    else
+      raise ArgumentError, """
+      invalid :allow_ip_address option
+
+      Expected a boolean.
+
+          value: #{inspect(value)}
+      """
+    end
+  end
+
+  # A scheme is case insensitive and `URI` downcases the one it parses, so the
+  # given list is downcased to match rather than refusing every URL.
+  defp validate_value!(:schemes, value) do
+    if is_list(value) and value != [] and Enum.all?(value, &is_binary/1) do
+      Enum.map(value, &String.downcase/1)
+    else
+      raise ArgumentError, """
+      invalid :schemes option
+
+      Expected a non-empty list of strings, e.g. ["http", "https"].
+
+          value: #{inspect(value)}
+      """
+    end
+  end
+
   defp check_scheme(%URI{scheme: scheme}, schemes) do
     if scheme in schemes do
       :ok
@@ -209,7 +242,7 @@ defmodule ReqSSRF do
     charlist = to_charlist(host)
 
     case :inet.parse_address(charlist) do
-      {:ok, _address} when not allow_ip_address -> {:error, :ip_address}
+      {:ok, _address} when allow_ip_address == false -> {:error, :ip_address}
       {:ok, address} -> {:ok, [address]}
       {:error, :einval} -> resolve_name(charlist)
     end
@@ -242,28 +275,74 @@ defmodule ReqSSRF do
   `ReqSSRF.BlockedError`. `Req.request/2` returns
   `{:error, %ReqSSRF.BlockedError{}}` and `Req.request!/2` raises it.
 
-  Takes the same options as `check/2`. They are stored under the single
-  `:ssrf_check` request option. Pass `ssrf_check: false` on a request to skip
-  the check.
+  Takes the same options as `check/2`.
+
+  The `:ssrf_check` request option decides what a single request does:
+
+  - `true` - run the check with the options given to `attach/2`. This is the
+    default.
+  - `false` - skip the check for this request.
+  - a keyword list - run the check with these options on top of the ones given
+    to `attach/2`, so an option that is not named keeps its attached value.
+
+  Any other value raises `ArgumentError`, since a value that is neither of the
+  above would otherwise skip the check silently.
 
   ## Examples
 
       Req.new()
       |> ReqSSRF.attach(allow_ip_address: false)
       |> Req.get(url: submitted_url)
+
+  Skipping the check for one request:
+
+      Req.get(request, url: internal_url, ssrf_check: false)
+
+  Allowing an IP address for one request, keeping every other attached option:
+
+      Req.get(request, url: url, ssrf_check: [allow_ip_address: true])
   """
   @spec attach(Req.Request.t(), opts()) :: Req.Request.t()
   def attach(%Req.Request{} = request, opts \\ []) do
-    opts = Keyword.validate!(opts, [:allow_ip_address, :schemes])
+    opts =
+      opts
+      |> Keyword.validate!([:allow_ip_address, :schemes])
+      |> validate_values!()
 
     request
     |> Req.Request.register_options([:ssrf_check])
-    |> Req.merge(ssrf_check: opts)
-    |> Req.Request.append_request_steps(ssrf_check: &check_url/1)
+    |> Req.merge(ssrf_check: true)
+    |> Req.Request.append_request_steps(ssrf_check: &check_url(&1, opts))
   end
 
-  defp check_url(%Req.Request{options: %{ssrf_check: opts}} = request)
-       when is_list(opts) do
+  defp check_url(%Req.Request{options: %{ssrf_check: false}} = request, _opts) do
+    request
+  end
+
+  defp check_url(%Req.Request{options: %{ssrf_check: true}} = request, opts) do
+    run_check(request, opts)
+  end
+
+  defp check_url(
+         %Req.Request{options: %{ssrf_check: overrides}} = request,
+         opts
+       )
+       when is_list(overrides) do
+    run_check(request, Keyword.merge(opts, overrides))
+  end
+
+  defp check_url(%Req.Request{options: options}, _opts) do
+    raise ArgumentError, """
+    invalid :ssrf_check option
+
+    Expected true to run the check, false to skip it, or a keyword list of
+    options to override the ones given to ReqSSRF.attach/2.
+
+        value: #{inspect(Map.get(options, :ssrf_check))}
+    """
+  end
+
+  defp run_check(request, opts) do
     case check(request.url, opts) do
       :ok ->
         request
@@ -273,6 +352,4 @@ defmodule ReqSSRF do
         Req.Request.halt(request, error)
     end
   end
-
-  defp check_url(%Req.Request{} = request), do: request
 end
