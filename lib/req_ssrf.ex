@@ -32,6 +32,7 @@ defmodule ReqSSRF do
   @defaults [
     allow_ip_address: true,
     deny: [],
+    resolver: &:inet.getaddrs/3,
     schemes: @default_schemes,
     timeout: @default_timeout
   ]
@@ -103,6 +104,12 @@ defmodule ReqSSRF do
     Defaults to `true`.
   - `:deny` - additional address ranges to refuse, as a list of CIDR strings.
     Defaults to `[]`.
+  - `:resolver` - the function that resolves a name, for tests that must not
+    touch the network. It is called as `resolver.(charlist, family, timeout)`
+    with the family `:inet` or `:inet6`, and returns what
+    [`:inet.getaddrs/3`](https://www.erlang.org/doc/apps/kernel/inet.html#getaddrs/3)
+    returns. Defaults to `&:inet.getaddrs/3`, which is also the contract to
+    mirror. There is no reason to set it in production.
   - `:schemes` - the accepted URL schemes. Defaults to
     `#{inspect(@default_schemes)}`.
   - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
@@ -112,9 +119,19 @@ defmodule ReqSSRF do
   @type opts :: [
           allow_ip_address: boolean,
           deny: [String.t()],
+          resolver: resolver(),
           schemes: [String.t()],
           timeout: timeout()
         ]
+
+  @typedoc """
+  A function that resolves a name to addresses of one family.
+
+  Mirrors [`:inet.getaddrs/3`](https://www.erlang.org/doc/apps/kernel/inet.html#getaddrs/3).
+  """
+  @type resolver ::
+          (charlist(), :inet | :inet6, timeout() ->
+             {:ok, [:inet.ip_address()]} | {:error, term()})
 
   @doc """
   Returns `:ok` if the URL may be fetched, or `{:error, reason}` if it may not.
@@ -250,6 +267,20 @@ defmodule ReqSSRF do
     end
   end
 
+  defp validate_value!(:resolver, value) do
+    if is_function(value, 3) do
+      value
+    else
+      raise ArgumentError, """
+      invalid :resolver option
+
+      Expected a function of arity 3, mirroring &:inet.getaddrs/3.
+
+          value: #{inspect(value)}
+      """
+    end
+  end
+
   defp validate_value!(:timeout, value) do
     if value == :infinity or (is_integer(value) and value >= 0) do
       value
@@ -343,13 +374,16 @@ defmodule ReqSSRF do
         {:ok, [address]}
 
       {:error, :einval} ->
-        resolve_name(charlist, Keyword.fetch!(opts, :timeout))
+        resolve_name(charlist, opts)
     end
   end
 
-  defp resolve_name(hostname, timeout) do
-    with {:ok, inet} <- getaddrs(hostname, :inet, timeout),
-         {:ok, inet6} <- getaddrs(hostname, :inet6, timeout) do
+  defp resolve_name(hostname, opts) do
+    timeout = Keyword.fetch!(opts, :timeout)
+    resolver = Keyword.fetch!(opts, :resolver)
+
+    with {:ok, inet} <- getaddrs(hostname, :inet, timeout, resolver),
+         {:ok, inet6} <- getaddrs(hostname, :inet6, timeout, resolver) do
       case Enum.uniq(inet ++ inet6) do
         [] -> {:error, :unresolvable_host}
         addresses -> {:ok, addresses}
@@ -357,8 +391,8 @@ defmodule ReqSSRF do
     end
   end
 
-  defp getaddrs(host, family, timeout) do
-    task = Task.async(fn -> :inet.getaddrs(host, family, timeout) end)
+  defp getaddrs(host, family, timeout, resolver) do
+    task = Task.async(fn -> resolver.(host, family, timeout) end)
 
     case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
       {:ok, {:ok, addresses}} -> {:ok, addresses}

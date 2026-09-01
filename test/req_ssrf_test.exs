@@ -131,6 +131,64 @@ defmodule ReqSSRFTest do
       end
     end
 
+    test "resolves through the given resolver" do
+      resolver = fn
+        ~c"db.internal", :inet, _timeout -> {:ok, [{10, 0, 0, 5}]}
+        ~c"db.internal", :inet6, _timeout -> {:error, :nxdomain}
+      end
+
+      assert ReqSSRF.check("http://db.internal/", resolver: resolver) ==
+               {:error, :reserved_address}
+    end
+
+    test "refuses a name whose families disagree" do
+      # A public A record and a reserved AAAA record. Every address in either
+      # answer has to be public, so this is refused even though the request
+      # would connect over IPv4.
+      resolver = fn
+        _host, :inet, _timeout -> {:ok, [{8, 8, 8, 8}]}
+        _host, :inet6, _timeout -> {:ok, [{0xFD00, 0, 0, 0, 0, 0, 0, 1}]}
+      end
+
+      assert ReqSSRF.check("http://split.example/", resolver: resolver) ==
+               {:error, :reserved_address}
+    end
+
+    test "accepts a name that resolves to public addresses only" do
+      resolver = fn
+        _host, :inet, _timeout -> {:ok, [{8, 8, 8, 8}, {1, 1, 1, 1}]}
+        _host, :inet6, _timeout -> {:error, :nxdomain}
+      end
+
+      assert ReqSSRF.check("http://ok.example/", resolver: resolver) == :ok
+    end
+
+    test "refuses a name that resolves to nothing" do
+      resolver = fn _host, _family, _timeout -> {:error, :nxdomain} end
+
+      assert ReqSSRF.check("http://nothing.example/", resolver: resolver) ==
+               {:error, :unresolvable_host}
+    end
+
+    test "bounds a slow resolver" do
+      resolver = fn _host, _family, _timeout ->
+        Process.sleep(:infinity)
+      end
+
+      assert ReqSSRF.check("http://slow.example/",
+               resolver: resolver,
+               timeout: 20
+             ) == {:error, :resolution_failed}
+    end
+
+    test "raises on a resolver that is not a function of arity 3" do
+      for value <- [fn -> :ok end, fn _ -> :ok end, "resolver", nil] do
+        assert_raise ArgumentError, ~r/invalid :resolver option/, fn ->
+          ReqSSRF.check("http://x.example/", resolver: value)
+        end
+      end
+    end
+
     test "rejects a scheme that is not allowed" do
       assert ReqSSRF.check("file:///etc/passwd") ==
                {:error, :unsupported_scheme}
