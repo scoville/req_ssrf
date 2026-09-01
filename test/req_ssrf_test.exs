@@ -51,6 +51,13 @@ defmodule ReqSSRFTest do
       assert ReqSSRF.check("http://localhost/") == {:error, :reserved_address}
     end
 
+    test "checks the host and not the userinfo" do
+      assert ReqSSRF.check("http://8.8.8.8@127.0.0.1/") ==
+               {:error, :reserved_address}
+
+      assert ReqSSRF.check("http://127.0.0.1@8.8.8.8/") == :ok
+    end
+
     test "rejects any address when allow_ip_address is false" do
       opts = [allow_ip_address: false]
 
@@ -61,6 +68,37 @@ defmodule ReqSSRFTest do
 
       assert ReqSSRF.check("http://2130706433/", opts) == {:error, :ip_address}
       assert ReqSSRF.check("http://127.0.0.1/", opts) == {:error, :ip_address}
+    end
+
+    test "reads every notation as an address when allow_ip_address is false" do
+      opts = [allow_ip_address: false]
+
+      for host <- [
+            "0x7f.1",
+            "0x7f000001",
+            "0X7F000001",
+            "0177.0.0.1",
+            "127.1",
+            "127.0.1",
+            "127.0.0.01",
+            "0",
+            "[::1]",
+            "[::ffff:127.0.0.1]"
+          ] do
+        assert ReqSSRF.check("http://#{host}/", opts) == {:error, :ip_address}
+      end
+    end
+
+    test "refuses an address written with a trailing dot" do
+      assert ReqSSRF.check("http://8.8.8.8./", allow_ip_address: false) in [
+               {:error, :ip_address},
+               {:error, :unresolvable_host}
+             ]
+
+      assert ReqSSRF.check("http://127.0.0.1./") in [
+               {:error, :reserved_address},
+               {:error, :unresolvable_host}
+             ]
     end
 
     test "rejects a scheme that is not allowed" do
@@ -262,6 +300,23 @@ defmodule ReqSSRFTest do
                request("http://8.8.8.8/")
 
       assert error.url.host == "169.254.169.254"
+    end
+
+    test "does not see a URL that a later request step sets" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      rewrite = fn request ->
+        %{request | url: URI.parse("http://127.0.0.1/")}
+      end
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+        |> Req.Request.append_request_steps(rewrite: rewrite)
+
+      assert {:ok, %Req.Response{status: 200}} =
+               Req.get(request, url: "http://8.8.8.8/")
     end
 
     test "skips the check when ssrf_check is false" do
