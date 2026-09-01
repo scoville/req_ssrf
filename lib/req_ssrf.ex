@@ -8,69 +8,9 @@ defmodule ReqSSRF do
   reserved URLs. `attach/2` ensures that every redirect hop of a `Req` request
   is validated.
 
-  A host written as an IP address is matched against the reserved ranges in
-  whatever notation it is written: `:inet.parse_address/1` reads `127.0.0.1`,
-  `2130706433` and `[::ffff:10.0.0.1]` alike. A caller with no use for literal
-  hosts can refuse them with `allow_ip_address: false`.
-
-  A name is resolved with `:inet.getaddrs/2`, the resolver `Finch` uses, so
-  the check and the request that follows ask the same resolver. Every address
-  in the answer has to be one the internet can route to. A host that does not
-  resolve is refused.
-
-  The reserved ranges are listed under `public_address?/1`.
-
-  ## Use the step, not the predicate
-
-  `allowed?/2` and `check/2` check a single URL. That is not enough on its own,
-  because `Req` follows redirects by default. If only the given URL is checked,
-  a host that passes that check can respond with
-  `302 Location: http://169.254.169.254/` to point the server at an internal
-  endpoint.
-
-  `attach/2` adds the check as a request step to a `Req` request. `Req` re-runs
-  the request steps for each redirect, which means that every hop is checked by
-  this module.
-
-  Only use `check/2` directly when you are not making the request, for example
-  if you are validating a URL the user is saving.
-
-  ## Residual risk: DNS rebinding
-
-  The addresses are checked, and then the host is resolved again when the
-  connection is made. A resolver under the attacker's control can answer
-  differently the second time, so a name that passed can still connect to a
-  reserved address. This needs a nameserver the attacker controls, while the
-  redirect that `attach/2` closes needs only one response header.
-
-  The library does not close it. Closing it in the application means
-  connecting to the validated address while keeping the `Host` header, the TLS
-  server name and the certificate hostname check, and getting any of the three
-  wrong turns certificate verification off without saying so.
-
-  Using this module therefore means accepting that a host whose DNS the
-  attacker controls can reach any address the server routes to. Deny egress to
-  the private ranges and the metadata endpoint at the network if that is not
-  acceptable. That also covers the fetches nobody remembered to check, which
-  this module cannot.
-
-  ## What else the check leaves open
-
-  Nothing connects to a refused URL, so a user cannot find out what is listening
-  on an internal address. Two things remain.
-
-  The first is the reason for a refusal. `ReqSSRF.BlockedError` says
-  whether the name failed to resolve or resolved to a reserved address, which
-  tells a user which names your resolver knows and a public one does not: inside
-  a VPC, submitting `db.internal` reveals whether it exists. Do not show the
-  reason to whoever supplied the URL.
-
-  The second is the fetch itself. A user learns little from a URL that passes,
-  since they can reach a public host without your help, but the request goes out
-  from your server's address rather than theirs. Yours is the address in the
-  target's logs and the one blocked for abuse, and a service that allowlists
-  your IP range will take a request from your server that it would refuse from
-  the user. Rate limit the paths that fetch on a user's behalf.
+  The documentation of `public_address?/1` lists the reserved ranges.
+  See [README](readme.html) for more details on what the library does and does
+  not do.
   """
 
   alias ReqSSRF.BlockedError
@@ -141,7 +81,7 @@ defmodule ReqSSRF do
   Returns `:ok` if the URL may be fetched, or `{:error, reason}` if it may not.
 
   If you use `Req`, use `attach/2` instead. This ensures that Req checks every
-  URL when following redirects. If you use a different HTTP client that follows,
+  URL when following redirects. If you use a different HTTP client that follows
   redirects, you must check every URL that is redirected to yourself.
 
   ## Examples
