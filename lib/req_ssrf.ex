@@ -27,6 +27,13 @@ defmodule ReqSSRF do
   alias ReqSSRF.BlockedError
 
   @default_schemes ~w[http https]
+  @default_timeout 2_000
+
+  @defaults [
+    allow_ip_address: true,
+    schemes: @default_schemes,
+    timeout: @default_timeout
+  ]
 
   # IANA special-purpose IPv4 ranges
   @ipv4_ranges [
@@ -84,6 +91,7 @@ defmodule ReqSSRF do
           | :unsupported_scheme
           | :ip_address
           | :unresolvable_host
+          | :resolution_failed
           | :reserved_address
 
   @typedoc """
@@ -93,8 +101,15 @@ defmodule ReqSSRF do
     Defaults to `true`.
   - `:schemes` - the accepted URL schemes. Defaults to
     `#{inspect(@default_schemes)}`.
+  - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
+    `:infinity`. Applies to each address family, so a host that answers for
+    neither takes twice as long. Defaults to `#{@default_timeout}`.
   """
-  @type opts :: [allow_ip_address: boolean, schemes: [String.t()]]
+  @type opts :: [
+          allow_ip_address: boolean,
+          schemes: [String.t()],
+          timeout: timeout()
+        ]
 
   @doc """
   Returns `:ok` if the URL may be fetched, or `{:error, reason}` if it may not.
@@ -130,12 +145,11 @@ defmodule ReqSSRF do
   def check(%URI{} = uri, opts) do
     opts =
       opts
-      |> Keyword.validate!(allow_ip_address: true, schemes: @default_schemes)
+      |> Keyword.validate!(@defaults)
       |> validate_values!()
 
     with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
-         {:ok, addresses} <-
-           resolve(uri.host, Keyword.fetch!(opts, :allow_ip_address)) do
+         {:ok, addresses} <- resolve(uri.host, opts) do
       if Enum.all?(addresses, &public_address?/1) do
         :ok
       else
@@ -221,6 +235,20 @@ defmodule ReqSSRF do
     end
   end
 
+  defp validate_value!(:timeout, value) do
+    if value == :infinity or (is_integer(value) and value >= 0) do
+      value
+    else
+      raise ArgumentError, """
+      invalid :timeout option
+
+      Expected a number of milliseconds, or :infinity.
+
+          value: #{inspect(value)}
+      """
+    end
+  end
+
   # A scheme is case insensitive and `URI` downcases the one it parses, so the
   # given list is downcased to match rather than refusing every URL.
   defp validate_value!(:schemes, value) do
@@ -260,31 +288,43 @@ defmodule ReqSSRF do
 
   defp unmap(address), do: address
 
-  defp resolve(host, _allow_ip_address) when host in [nil, ""] do
+  defp resolve(host, _opts) when host in [nil, ""] do
     {:error, :missing_host}
   end
 
-  defp resolve(host, allow_ip_address) do
+  defp resolve(host, opts) do
     charlist = to_charlist(host)
+    allow_ip_address = Keyword.fetch!(opts, :allow_ip_address)
 
     case :inet.parse_address(charlist) do
-      {:ok, _address} when allow_ip_address == false -> {:error, :ip_address}
-      {:ok, address} -> {:ok, [address]}
-      {:error, :einval} -> resolve_name(charlist)
+      {:ok, _address} when allow_ip_address == false ->
+        {:error, :ip_address}
+
+      {:ok, address} ->
+        {:ok, [address]}
+
+      {:error, :einval} ->
+        resolve_name(charlist, Keyword.fetch!(opts, :timeout))
     end
   end
 
-  defp resolve_name(hostname) do
-    case getaddrs(hostname, :inet) ++ getaddrs(hostname, :inet6) do
-      [] -> {:error, :unresolvable_host}
-      addresses -> {:ok, Enum.uniq(addresses)}
+  defp resolve_name(hostname, timeout) do
+    with {:ok, inet} <- getaddrs(hostname, :inet, timeout),
+         {:ok, inet6} <- getaddrs(hostname, :inet6, timeout) do
+      case Enum.uniq(inet ++ inet6) do
+        [] -> {:error, :unresolvable_host}
+        addresses -> {:ok, addresses}
+      end
     end
   end
 
-  defp getaddrs(host, family) do
-    case :inet.getaddrs(host, family) do
-      {:ok, addresses} -> addresses
-      {:error, _reason} -> []
+  defp getaddrs(host, family, timeout) do
+    task = Task.async(fn -> :inet.getaddrs(host, family, timeout) end)
+
+    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ok, addresses}} -> {:ok, addresses}
+      {:ok, {:error, _reason}} -> {:ok, []}
+      _ -> {:error, :resolution_failed}
     end
   end
 
@@ -334,7 +374,7 @@ defmodule ReqSSRF do
   def attach(%Req.Request{} = request, opts \\ []) do
     opts =
       opts
-      |> Keyword.validate!([:allow_ip_address, :schemes])
+      |> Keyword.validate!(Keyword.keys(@defaults))
       |> validate_values!()
 
     request

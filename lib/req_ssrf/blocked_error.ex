@@ -39,6 +39,7 @@ defmodule ReqSSRF.BlockedError do
   defp describe(:unsupported_scheme), do: "the scheme is not allowed"
   defp describe(:ip_address), do: "the host is an IP address"
   defp describe(:unresolvable_host), do: "the host does not resolve"
+  defp describe(:resolution_failed), do: "the host could not be resolved"
   defp describe(:reserved_address), do: "the host is not on the internet"
 
   defimpl Inspect do

@@ -11,6 +11,7 @@ defmodule ReqSSRF.BlockedErrorTest do
         unsupported_scheme: "scheme is not allowed",
         ip_address: "an IP address",
         unresolvable_host: "does not resolve",
+        resolution_failed: "could not be resolved",
         reserved_address: "not on the internet"
       ]
 
