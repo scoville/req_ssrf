@@ -21,21 +21,13 @@ Some tests resolve real host names, so you need network access to run the suite.
 Run what CI runs before you push:
 
 ```bash
-mix format
-mix compile --warnings-as-errors
-mix credo
-mix test --warnings-as-errors
-mix docs --warnings-as-errors
-mix dialyzer
+mix precommit
 ```
-
-The first `mix dialyzer` builds a PLT and takes a few minutes. After that it is
-quick.
 
 Three things fail the build and are easy to miss:
 
 - Test coverage has to stay at 100%. `mix coveralls.html` writes an HTML
-  coverage report.
+  coverage report showing which lines are missing.
 - Both `mix compile --warnings-as-errors` and `mix test --warnings-as-errors`
   have to complete without error on the latest Elixir and OTP versions.
 - Lines wrap at 80 characters.
