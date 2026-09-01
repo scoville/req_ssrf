@@ -5,8 +5,8 @@ defmodule ReqSSRF do
   A server that fetches a user-given URL can be pointed at the internal network,
   e.g. at another internal service, a database admin page, or the cloud
   provider's metadata endpoint. This module validates a URL against a list of
-  reserved URLs. `attach/2` ensures that every redirect hop of a `Req` request
-  is validated.
+  reserved IP address ranges. `attach/2` ensures that every redirect hop of a
+  `Req` request is validated.
 
   The documentation of `public_address?/1` lists the reserved ranges.
   See [README](readme.html) for more details on what the library does and does
@@ -159,7 +159,9 @@ defmodule ReqSSRF do
   ## Reserved ranges
 
   An IPv4 address is refused if it falls in one of the IANA special-purpose
-  ranges. `168.63.129.16/32` among them is Azure's host endpoint.
+  ranges that the internet cannot route to. `168.63.129.16/32` among them is
+  Azure's host endpoint. The registry also lists globally routed anycast ranges,
+  such as the AS112 and AMT assignments, and those are not refused.
 
   #{Enum.map_join(@ipv4_ranges, "\n", &"- `#{&1}`")}
 
@@ -283,6 +285,8 @@ defmodule ReqSSRF do
   The check runs as a request step appended after the steps that build the
   URL, so it sees the URL that is about to be requested, and `Req` re-runs it
   for each redirect.
+
+  This function must be called after any other step that can change the URL.
 
   A request whose URL may not be fetched is halted with
   `ReqSSRF.BlockedError`. `Req.request/2` returns
