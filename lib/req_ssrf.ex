@@ -110,10 +110,9 @@ defmodule ReqSSRF do
 
   def check(%URI{} = uri, opts) do
     opts =
-      Keyword.validate!(opts,
-        allow_ip_address: true,
-        schemes: @default_schemes
-      )
+      opts
+      |> Keyword.validate!(allow_ip_address: true, schemes: @default_schemes)
+      |> validate_values!()
 
     with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
          {:ok, addresses} <-
@@ -178,6 +177,40 @@ defmodule ReqSSRF do
     not reserved?(unmap(address))
   end
 
+  defp validate_values!(opts) do
+    Keyword.new(opts, fn {key, value} -> {key, validate_value!(key, value)} end)
+  end
+
+  defp validate_value!(:allow_ip_address, value) do
+    if is_boolean(value) do
+      value
+    else
+      raise ArgumentError, """
+      invalid :allow_ip_address option
+
+      Expected a boolean.
+
+          value: #{inspect(value)}
+      """
+    end
+  end
+
+  # A scheme is case insensitive and `URI` downcases the one it parses, so the
+  # given list is downcased to match rather than refusing every URL.
+  defp validate_value!(:schemes, value) do
+    if is_list(value) and value != [] and Enum.all?(value, &is_binary/1) do
+      Enum.map(value, &String.downcase/1)
+    else
+      raise ArgumentError, """
+      invalid :schemes option
+
+      Expected a non-empty list of strings, e.g. ["http", "https"].
+
+          value: #{inspect(value)}
+      """
+    end
+  end
+
   defp check_scheme(%URI{scheme: scheme}, schemes) do
     if scheme in schemes do
       :ok
@@ -209,7 +242,7 @@ defmodule ReqSSRF do
     charlist = to_charlist(host)
 
     case :inet.parse_address(charlist) do
-      {:ok, _address} when not allow_ip_address -> {:error, :ip_address}
+      {:ok, _address} when allow_ip_address == false -> {:error, :ip_address}
       {:ok, address} -> {:ok, [address]}
       {:error, :einval} -> resolve_name(charlist)
     end
@@ -271,7 +304,10 @@ defmodule ReqSSRF do
   """
   @spec attach(Req.Request.t(), opts()) :: Req.Request.t()
   def attach(%Req.Request{} = request, opts \\ []) do
-    opts = Keyword.validate!(opts, [:allow_ip_address, :schemes])
+    opts =
+      opts
+      |> Keyword.validate!([:allow_ip_address, :schemes])
+      |> validate_values!()
 
     request
     |> Req.Request.register_options([:ssrf_check])

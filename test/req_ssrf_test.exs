@@ -94,6 +94,34 @@ defmodule ReqSSRFTest do
         ReqSSRF.check("http://8.8.8.8/", allow_ip_addresses: false)
       end
     end
+
+    test "raises on an allow_ip_address that is not a boolean" do
+      for value <- [nil, "yes", 1, :yes] do
+        assert_raise ArgumentError,
+                     ~r/invalid :allow_ip_address option/,
+                     fn ->
+                       ReqSSRF.check("http://8.8.8.8/",
+                         allow_ip_address: value
+                       )
+                     end
+      end
+    end
+
+    test "reads a scheme regardless of case" do
+      assert ReqSSRF.check("http://8.8.8.8/", schemes: ["HTTP"]) == :ok
+      assert ReqSSRF.check("HTTP://8.8.8.8/", schemes: ["http"]) == :ok
+
+      assert ReqSSRF.check("http://8.8.8.8/", schemes: ["HTTPS"]) ==
+               {:error, :unsupported_scheme}
+    end
+
+    test "raises on schemes that are not a non-empty list of strings" do
+      for value <- ["https", [:http], [], ["http", :https], nil] do
+        assert_raise ArgumentError, ~r/invalid :schemes option/, fn ->
+          ReqSSRF.check("http://8.8.8.8/", schemes: value)
+        end
+      end
+    end
   end
 
   describe "allowed?/2" do
@@ -338,6 +366,32 @@ defmodule ReqSSRFTest do
     test "raises on an unknown option" do
       assert_raise ArgumentError, fn ->
         ReqSSRF.attach(Req.new(), allow_ip_addresses: false)
+      end
+    end
+
+    test "raises on an invalid option value when attaching" do
+      assert_raise ArgumentError, ~r/invalid :schemes option/, fn ->
+        ReqSSRF.attach(Req.new(), schemes: "https")
+      end
+
+      assert_raise ArgumentError, ~r/invalid :allow_ip_address option/, fn ->
+        ReqSSRF.attach(Req.new(), allow_ip_address: nil)
+      end
+    end
+
+    test "raises on an invalid option value overridden on a request" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+
+      assert_raise ArgumentError, ~r/invalid :allow_ip_address option/, fn ->
+        Req.get(request,
+          url: "http://8.8.8.8/",
+          ssrf_check: [allow_ip_address: nil]
+        )
       end
     end
   end
