@@ -11,6 +11,17 @@ defmodule ReqSSRF do
   The documentation of `public_address?/1` lists the reserved ranges.
   See [README](readme.html) for more details on what the library does and does
   not do.
+
+  ## Telemetry
+
+  `attach/2` emits an event when it refuses a URL. Nothing is emitted for a URL
+  that passes.
+
+  A rising rate of blocked URLs means somebody is probing the endpoint.
+
+  * `[:req_ssrf, :blocked]`
+    * measurements: `%{system_time: System.system_time()}`
+    * metadata: `%{url: URI.t(), reason: t:reason/0}`
   """
 
   alias ReqSSRF.BlockedError
@@ -365,6 +376,12 @@ defmodule ReqSSRF do
         request
 
       {:error, reason} ->
+        :telemetry.execute(
+          [:req_ssrf, :blocked],
+          %{system_time: System.system_time()},
+          %{url: request.url, reason: reason}
+        )
+
         error = %BlockedError{url: request.url, reason: reason}
         Req.Request.halt(request, error)
     end

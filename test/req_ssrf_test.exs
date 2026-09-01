@@ -432,6 +432,46 @@ defmodule ReqSSRFTest do
                Req.get(request, url: "http://8.8.8.8/")
     end
 
+    test "emits telemetry when it refuses a URL" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:req_ssrf, :blocked]])
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+
+      assert {:error, %BlockedError{}} =
+               Req.get(request, url: "http://127.0.0.1/")
+
+      assert_received {[:req_ssrf, :blocked], ^ref, measurements, metadata}
+      assert is_integer(measurements.system_time)
+      assert metadata.reason == :reserved_address
+      assert metadata.url.host == "127.0.0.1"
+    end
+
+    test "emits nothing when it allows a URL" do
+      Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
+
+      ref =
+        :telemetry_test.attach_event_handlers(self(), [[:req_ssrf, :blocked]])
+
+      on_exit(fn -> :telemetry.detach(ref) end)
+
+      request =
+        [plug: {Req.Test, __MODULE__}]
+        |> Req.new()
+        |> ReqSSRF.attach()
+
+      assert {:ok, %Req.Response{}} = Req.get(request, url: "http://8.8.8.8/")
+
+      refute_received {[:req_ssrf, :blocked], ^ref, _, _}
+    end
+
     test "raises on an unknown option" do
       assert_raise ArgumentError, fn ->
         ReqSSRF.attach(Req.new(), allow_ip_addresses: false)
