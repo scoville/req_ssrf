@@ -178,3 +178,4 @@ the idle ones.
 Whether the server may fetch a URL and whether the browser may redirect to one
 are different questions, and this library answers only the first. Do not use
 `ReqSSRF.check/2` to validate a redirect target.
+Use [SafeRedirect](https://github.com/scoville/safe_redirect) instead.
