@@ -259,7 +259,7 @@ defmodule ReqSSRF do
 
   defp validate_value!(:deny, value) do
     if is_list(value) and Enum.all?(value, &valid_cidr?/1) do
-      value
+      Enum.map(value, &InetCidr.parse_cidr!/1)
     else
       raise ArgumentError, """
       invalid :deny option
@@ -319,9 +319,8 @@ defmodule ReqSSRF do
     is_binary(cidr) and match?({:ok, _}, InetCidr.parse_cidr(cidr))
   end
 
-  defp check_addresses(addresses, deny) do
+  defp check_addresses(addresses, ranges) do
     addresses = Enum.map(addresses, &unmap/1)
-    ranges = Enum.map(deny, &InetCidr.parse_cidr!/1)
 
     cond do
       not Enum.all?(addresses, &public_address?/1) ->
