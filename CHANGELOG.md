@@ -5,10 +5,14 @@ format. This project adheres to [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-08
+
 ### Changed
 
 - Resolve both address families at the same time. `:timeout` bounds the
   resolution as a whole now.
+- Speed up `ReqSSRF.public_address?/1` by around 50x and the check that runs
+  for each request by around 3x.
 
 ## [0.1.0] - 2026-09-01
 
@@ -19,5 +23,6 @@ format. This project adheres to [Semantic Versioning](https://semver.org/spec/v2
 - Add `ReqSSRF.check/2` and `ReqSSRF.allowed?/2` for validating a single URL,
   and `ReqSSRF.public_address?/1` for a single IP address.
 
-[Unreleased]: https://github.com/scoville/req_ssrf/compare/0.1.0...HEAD
+[Unreleased]: https://github.com/scoville/req_ssrf/compare/0.2.0...HEAD
+[0.2.0]: https://github.com/scoville/req_ssrf/compare/0.1.0...0.2.0
 [0.1.0]: https://github.com/scoville/req_ssrf/releases/tag/0.1.0
