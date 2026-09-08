@@ -181,6 +181,34 @@ defmodule ReqSSRFTest do
              ) == {:error, :resolution_failed}
     end
 
+    test "resolves both address families at the same time" do
+      test = self()
+
+      resolver = fn _host, family, _timeout ->
+        send(test, {:asked, family, self()})
+
+        receive do
+          :go -> {:ok, [{8, 8, 8, 8}]}
+        end
+      end
+
+      check =
+        Task.async(fn ->
+          ReqSSRF.check("http://both.example/",
+            resolver: resolver,
+            timeout: 1_000
+          )
+        end)
+
+      assert_receive {:asked, :inet, inet}
+      assert_receive {:asked, :inet6, inet6}
+
+      send(inet, :go)
+      send(inet6, :go)
+
+      assert Task.await(check) == :ok
+    end
+
     test "raises on a resolver that is not a function of arity 3" do
       for value <- [fn -> :ok end, fn _ -> :ok end, "resolver", nil] do
         assert_raise ArgumentError, ~r/invalid :resolver option/, fn ->
@@ -207,8 +235,12 @@ defmodule ReqSSRFTest do
     end
 
     test "refuses a name that does not resolve within the timeout" do
-      assert ReqSSRF.check("http://example.com/", timeout: 0) ==
-               {:error, :resolution_failed}
+      resolver = fn _host, _family, _timeout -> Process.sleep(:infinity) end
+
+      assert ReqSSRF.check("http://example.com/",
+               resolver: resolver,
+               timeout: 20
+             ) == {:error, :resolution_failed}
     end
 
     test "does not apply the timeout to an address literal" do
@@ -568,10 +600,12 @@ defmodule ReqSSRFTest do
     test "halts a request whose host does not resolve in time" do
       Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
 
+      resolver = fn _host, _family, _timeout -> Process.sleep(:infinity) end
+
       request =
         [plug: {Req.Test, __MODULE__}]
         |> Req.new()
-        |> ReqSSRF.attach(timeout: 0)
+        |> ReqSSRF.attach(resolver: resolver, timeout: 20)
 
       assert {:error, %BlockedError{reason: :resolution_failed}} =
                Req.get(request, url: "http://example.com/")

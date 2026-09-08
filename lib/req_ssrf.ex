@@ -25,6 +25,7 @@ defmodule ReqSSRF do
   """
 
   alias ReqSSRF.BlockedError
+  alias ReqSSRF.Ranges
 
   @default_schemes ~w[http https]
   @default_timeout 2_000
@@ -36,6 +37,8 @@ defmodule ReqSSRF do
     schemes: @default_schemes,
     timeout: @default_timeout
   ]
+
+  @option_keys Keyword.keys(@defaults)
 
   # IANA special-purpose IPv4 ranges
   @ipv4_ranges [
@@ -113,8 +116,8 @@ defmodule ReqSSRF do
   - `:schemes` - the accepted URL schemes. Defaults to
     `#{inspect(@default_schemes)}`.
   - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
-    `:infinity`. Applies to each address family, so a host that answers for
-    neither takes twice as long. Defaults to `#{@default_timeout}`.
+    `:infinity`. Both address families are resolved at the same time, so this
+    bounds the resolution as a whole. Defaults to `#{@default_timeout}`.
   """
   @type opts :: [
           allow_ip_address: boolean,
@@ -165,15 +168,7 @@ defmodule ReqSSRF do
   end
 
   def check(%URI{} = uri, opts) do
-    opts =
-      opts
-      |> Keyword.validate!(@defaults)
-      |> validate_values!()
-
-    with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
-         {:ok, addresses} <- resolve(uri.host, opts) do
-      check_addresses(addresses, Keyword.fetch!(opts, :deny))
-    end
+    do_check(uri, Keyword.merge(@defaults, validate_options!(opts)))
   end
 
   @doc """
@@ -235,8 +230,18 @@ defmodule ReqSSRF do
     not reserved?(unmap(address))
   end
 
-  defp validate_values!(opts) do
-    Keyword.new(opts, fn {key, value} -> {key, validate_value!(key, value)} end)
+  # Runs the check with validated options.
+  defp do_check(uri, opts) do
+    with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
+         {:ok, addresses} <- resolve(uri.host, opts) do
+      check_addresses(addresses, Keyword.fetch!(opts, :deny))
+    end
+  end
+
+  defp validate_options!(opts) do
+    opts
+    |> Keyword.validate!(@option_keys)
+    |> Keyword.new(fn {key, value} -> {key, validate_value!(key, value)} end)
   end
 
   defp validate_value!(:allow_ip_address, value) do
@@ -255,7 +260,7 @@ defmodule ReqSSRF do
 
   defp validate_value!(:deny, value) do
     if is_list(value) and Enum.all?(value, &valid_cidr?/1) do
-      value
+      Enum.map(value, &InetCidr.parse_cidr!/1)
     else
       raise ArgumentError, """
       invalid :deny option
@@ -315,9 +320,8 @@ defmodule ReqSSRF do
     is_binary(cidr) and match?({:ok, _}, InetCidr.parse_cidr(cidr))
   end
 
-  defp check_addresses(addresses, deny) do
+  defp check_addresses(addresses, ranges) do
     addresses = Enum.map(addresses, &unmap/1)
-    ranges = Enum.map(deny, &InetCidr.parse_cidr!/1)
 
     cond do
       not Enum.all?(addresses, &public_address?/1) ->
@@ -343,13 +347,30 @@ defmodule ReqSSRF do
     end
   end
 
-  defp reserved?({_, _, _, _} = address) do
-    Enum.any?(@parsed_ipv4_ranges, &InetCidr.contains?(&1, address))
+  # Generate one `reserved?` clause for every built-in range.
+  for range <- @parsed_ipv4_ranges ++ @parsed_ipv6_ranges do
+    {elements, guard} = Ranges.__clause__(range)
+
+    defp reserved?({unquote_splicing(elements)}) when unquote(guard) do
+      true
+    end
   end
 
-  defp reserved?(address) do
-    not InetCidr.contains?(@parsed_global_unicast, address) or
-      Enum.any?(@parsed_ipv6_ranges, &InetCidr.contains?(&1, address))
+  # For IPv6 addresses, an address outside the one range IANA has allocated for
+  # global unicast is refused.
+  {elements, guard} = Ranges.__clause__(@parsed_global_unicast)
+
+  defp reserved?({unquote_splicing(elements)}) when not unquote(guard) do
+    true
+  end
+
+  # The `is_ipv4`/`is_ipv6` guards are redundant at the moment. Kept as
+  # insurance for future refactoring.
+  defp reserved?({a, b, c, d}) when is_ipv4(a, b, c, d), do: false
+
+  defp reserved?({a, b, c, d, e, f, g, h})
+       when is_ipv6(a, b, c, d, e, f, g, h) do
+    false
   end
 
   defp unmap({0, 0, 0, 0, 0, 0xFFFF, ab, cd}) do
@@ -382,23 +403,32 @@ defmodule ReqSSRF do
     timeout = Keyword.fetch!(opts, :timeout)
     resolver = Keyword.fetch!(opts, :resolver)
 
-    with {:ok, inet} <- getaddrs(hostname, :inet, timeout, resolver),
-         {:ok, inet6} <- getaddrs(hostname, :inet6, timeout, resolver) do
-      case Enum.uniq(inet ++ inet6) do
+    tasks =
+      Enum.map([:inet, :inet6], fn family ->
+        Task.async(fn -> resolver.(hostname, family, timeout) end)
+      end)
+
+    with {:ok, addresses} <- await_families(tasks, timeout) do
+      case Enum.uniq(addresses) do
         [] -> {:error, :unresolvable_host}
         addresses -> {:ok, addresses}
       end
     end
   end
 
-  defp getaddrs(host, family, timeout, resolver) do
-    task = Task.async(fn -> resolver.(host, family, timeout) end)
+  defp await_families(tasks, timeout) do
+    tasks
+    |> Task.yield_many(timeout: timeout, on_timeout: :kill_task)
+    |> Enum.reduce_while({:ok, []}, fn
+      {_task, {:ok, {:ok, addresses}}}, {:ok, resolved} ->
+        {:cont, {:ok, resolved ++ addresses}}
 
-    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:ok, addresses}} -> {:ok, addresses}
-      {:ok, {:error, _reason}} -> {:ok, []}
-      _ -> {:error, :resolution_failed}
-    end
+      {_task, {:ok, {:error, _reason}}}, resolved ->
+        {:cont, resolved}
+
+      {_task, _no_answer}, _resolved ->
+        {:halt, {:error, :resolution_failed}}
+    end)
   end
 
   ## Req integration
@@ -445,10 +475,7 @@ defmodule ReqSSRF do
   """
   @spec attach(Req.Request.t(), opts()) :: Req.Request.t()
   def attach(%Req.Request{} = request, opts \\ []) do
-    opts =
-      opts
-      |> Keyword.validate!(Keyword.keys(@defaults))
-      |> validate_values!()
+    opts = Keyword.merge(@defaults, validate_options!(opts))
 
     request
     |> Req.Request.register_options([:ssrf_check])
@@ -469,7 +496,7 @@ defmodule ReqSSRF do
          opts
        )
        when is_list(overrides) do
-    run_check(request, Keyword.merge(opts, overrides))
+    run_check(request, Keyword.merge(opts, validate_options!(overrides)))
   end
 
   defp check_url(%Req.Request{options: options}, _opts) do
@@ -484,7 +511,7 @@ defmodule ReqSSRF do
   end
 
   defp run_check(request, opts) do
-    case check(request.url, opts) do
+    case do_check(request.url, opts) do
       :ok ->
         request
 

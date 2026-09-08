@@ -1,7 +1,7 @@
 defmodule ReqSSRF.MixProject do
   use Mix.Project
 
-  @version "0.1.0"
+  @version "0.2.0"
   @source_url "https://github.com/scoville/req_ssrf"
 
   def project do
@@ -80,6 +80,7 @@ defmodule ReqSSRF.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:benchee, "== 1.5.0", only: :dev},
       {:credo, "== 1.7.19", only: [:dev, :test], runtime: false},
       {:dialyxir, "== 1.4.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "== 0.40.3", only: [:dev, :test], runtime: false},

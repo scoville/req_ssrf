@@ -9,7 +9,7 @@ Add `req_ssrf` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:req_ssrf, "~> 0.1.0"}
+    {:req_ssrf, "~> 0.2.0"}
   ]
 end
 ```
@@ -75,7 +75,8 @@ HTTP request.
   touch the network. Defaults to `&:inet.getaddrs/3`, which is also the
   contract it has to mirror. There is no reason to set it in production.
 - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
-  `:infinity`. Defaults to `2000`.
+  `:infinity`. Both address families are resolved at the same time, so this
+  bounds the resolution as a whole. Defaults to `2000`.
 
 They are stored under the single `:ssrf_check` request option. Pass
 `ssrf_check: false` on a request to skip the check.
@@ -178,3 +179,4 @@ the idle ones.
 Whether the server may fetch a URL and whether the browser may redirect to one
 are different questions, and this library answers only the first. Do not use
 `ReqSSRF.check/2` to validate a redirect target.
+Use [SafeRedirect](https://github.com/scoville/safe_redirect) instead.
