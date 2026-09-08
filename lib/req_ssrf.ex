@@ -115,8 +115,8 @@ defmodule ReqSSRF do
   - `:schemes` - the accepted URL schemes. Defaults to
     `#{inspect(@default_schemes)}`.
   - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
-    `:infinity`. Applies to each address family, so a host that answers for
-    neither takes twice as long. Defaults to `#{@default_timeout}`.
+    `:infinity`. Both address families are resolved at the same time, so this
+    bounds the resolution as a whole. Defaults to `#{@default_timeout}`.
   """
   @type opts :: [
           allow_ip_address: boolean,
@@ -385,23 +385,32 @@ defmodule ReqSSRF do
     timeout = Keyword.fetch!(opts, :timeout)
     resolver = Keyword.fetch!(opts, :resolver)
 
-    with {:ok, inet} <- getaddrs(hostname, :inet, timeout, resolver),
-         {:ok, inet6} <- getaddrs(hostname, :inet6, timeout, resolver) do
-      case Enum.uniq(inet ++ inet6) do
+    tasks =
+      Enum.map([:inet, :inet6], fn family ->
+        Task.async(fn -> resolver.(hostname, family, timeout) end)
+      end)
+
+    with {:ok, addresses} <- await_families(tasks, timeout) do
+      case Enum.uniq(addresses) do
         [] -> {:error, :unresolvable_host}
         addresses -> {:ok, addresses}
       end
     end
   end
 
-  defp getaddrs(host, family, timeout, resolver) do
-    task = Task.async(fn -> resolver.(host, family, timeout) end)
+  defp await_families(tasks, timeout) do
+    tasks
+    |> Task.yield_many(timeout: timeout, on_timeout: :kill_task)
+    |> Enum.reduce_while({:ok, []}, fn
+      {_task, {:ok, {:ok, addresses}}}, {:ok, resolved} ->
+        {:cont, {:ok, resolved ++ addresses}}
 
-    case Task.yield(task, timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:ok, addresses}} -> {:ok, addresses}
-      {:ok, {:error, _reason}} -> {:ok, []}
-      _ -> {:error, :resolution_failed}
-    end
+      {_task, {:ok, {:error, _reason}}}, resolved ->
+        {:cont, resolved}
+
+      {_task, _no_answer}, _resolved ->
+        {:halt, {:error, :resolution_failed}}
+    end)
   end
 
   ## Req integration

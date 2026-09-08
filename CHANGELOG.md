@@ -5,6 +5,11 @@ format. This project adheres to [Semantic Versioning](https://semver.org/spec/v2
 
 ## [Unreleased]
 
+### Changed
+
+- Resolve both address families at the same time. `:timeout` bounds the
+  resolution as a whole now.
+
 ## [0.1.0] - 2026-09-01
 
 ### Added

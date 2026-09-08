@@ -181,6 +181,34 @@ defmodule ReqSSRFTest do
              ) == {:error, :resolution_failed}
     end
 
+    test "resolves both address families at the same time" do
+      test = self()
+
+      resolver = fn _host, family, _timeout ->
+        send(test, {:asked, family, self()})
+
+        receive do
+          :go -> {:ok, [{8, 8, 8, 8}]}
+        end
+      end
+
+      check =
+        Task.async(fn ->
+          ReqSSRF.check("http://both.example/",
+            resolver: resolver,
+            timeout: 1_000
+          )
+        end)
+
+      assert_receive {:asked, :inet, inet}
+      assert_receive {:asked, :inet6, inet6}
+
+      send(inet, :go)
+      send(inet6, :go)
+
+      assert Task.await(check) == :ok
+    end
+
     test "raises on a resolver that is not a function of arity 3" do
       for value <- [fn -> :ok end, fn _ -> :ok end, "resolver", nil] do
         assert_raise ArgumentError, ~r/invalid :resolver option/, fn ->

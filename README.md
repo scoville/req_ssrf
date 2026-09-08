@@ -75,7 +75,8 @@ HTTP request.
   touch the network. Defaults to `&:inet.getaddrs/3`, which is also the
   contract it has to mirror. There is no reason to set it in production.
 - `:timeout` - how long to wait for a name to resolve, in milliseconds, or
-  `:infinity`. Defaults to `2000`.
+  `:infinity`. Both address families are resolved at the same time, so this
+  bounds the resolution as a whole. Defaults to `2000`.
 
 They are stored under the single `:ssrf_check` request option. Pass
 `ssrf_check: false` on a request to skip the check.
