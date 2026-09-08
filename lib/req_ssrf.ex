@@ -37,6 +37,8 @@ defmodule ReqSSRF do
     timeout: @default_timeout
   ]
 
+  @option_keys Keyword.keys(@defaults)
+
   # IANA special-purpose IPv4 ranges
   @ipv4_ranges [
     "0.0.0.0/8",
@@ -237,7 +239,7 @@ defmodule ReqSSRF do
 
   defp validate_options!(opts) do
     opts
-    |> Keyword.validate!(Keyword.keys(@defaults))
+    |> Keyword.validate!(@option_keys)
     |> Keyword.new(fn {key, value} -> {key, validate_value!(key, value)} end)
   end
 
