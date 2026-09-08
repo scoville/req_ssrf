@@ -25,6 +25,7 @@ defmodule ReqSSRF do
   """
 
   alias ReqSSRF.BlockedError
+  alias ReqSSRF.Ranges
 
   @default_schemes ~w[http https]
   @default_timeout 2_000
@@ -346,13 +347,30 @@ defmodule ReqSSRF do
     end
   end
 
-  defp reserved?({_, _, _, _} = address) do
-    Enum.any?(@parsed_ipv4_ranges, &InetCidr.contains?(&1, address))
+  # Generate one `reserved?` clause for every built-in range.
+  for range <- @parsed_ipv4_ranges ++ @parsed_ipv6_ranges do
+    {elements, guard} = Ranges.__clause__(range)
+
+    defp reserved?({unquote_splicing(elements)}) when unquote(guard) do
+      true
+    end
   end
 
-  defp reserved?(address) do
-    not InetCidr.contains?(@parsed_global_unicast, address) or
-      Enum.any?(@parsed_ipv6_ranges, &InetCidr.contains?(&1, address))
+  # For IPv6 addresses, an address outside the one range IANA has allocated for
+  # global unicast is refused.
+  {elements, guard} = Ranges.__clause__(@parsed_global_unicast)
+
+  defp reserved?({unquote_splicing(elements)}) when not unquote(guard) do
+    true
+  end
+
+  # The `is_ipv4`/`is_ipv6` guards are redundant at the moment. Kept as
+  # insurance for future refactoring.
+  defp reserved?({a, b, c, d}) when is_ipv4(a, b, c, d), do: false
+
+  defp reserved?({a, b, c, d, e, f, g, h})
+       when is_ipv6(a, b, c, d, e, f, g, h) do
+    false
   end
 
   defp unmap({0, 0, 0, 0, 0, 0xFFFF, ab, cd}) do
