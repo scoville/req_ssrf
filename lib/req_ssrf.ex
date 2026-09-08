@@ -165,15 +165,7 @@ defmodule ReqSSRF do
   end
 
   def check(%URI{} = uri, opts) do
-    opts =
-      opts
-      |> Keyword.validate!(@defaults)
-      |> validate_values!()
-
-    with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
-         {:ok, addresses} <- resolve(uri.host, opts) do
-      check_addresses(addresses, Keyword.fetch!(opts, :deny))
-    end
+    do_check(uri, Keyword.merge(@defaults, validate_options!(opts)))
   end
 
   @doc """
@@ -235,8 +227,18 @@ defmodule ReqSSRF do
     not reserved?(unmap(address))
   end
 
-  defp validate_values!(opts) do
-    Keyword.new(opts, fn {key, value} -> {key, validate_value!(key, value)} end)
+  # Runs the check with validated options.
+  defp do_check(uri, opts) do
+    with :ok <- check_scheme(uri, Keyword.fetch!(opts, :schemes)),
+         {:ok, addresses} <- resolve(uri.host, opts) do
+      check_addresses(addresses, Keyword.fetch!(opts, :deny))
+    end
+  end
+
+  defp validate_options!(opts) do
+    opts
+    |> Keyword.validate!(Keyword.keys(@defaults))
+    |> Keyword.new(fn {key, value} -> {key, validate_value!(key, value)} end)
   end
 
   defp validate_value!(:allow_ip_address, value) do
@@ -445,10 +447,7 @@ defmodule ReqSSRF do
   """
   @spec attach(Req.Request.t(), opts()) :: Req.Request.t()
   def attach(%Req.Request{} = request, opts \\ []) do
-    opts =
-      opts
-      |> Keyword.validate!(Keyword.keys(@defaults))
-      |> validate_values!()
+    opts = Keyword.merge(@defaults, validate_options!(opts))
 
     request
     |> Req.Request.register_options([:ssrf_check])
@@ -469,7 +468,7 @@ defmodule ReqSSRF do
          opts
        )
        when is_list(overrides) do
-    run_check(request, Keyword.merge(opts, overrides))
+    run_check(request, Keyword.merge(opts, validate_options!(overrides)))
   end
 
   defp check_url(%Req.Request{options: options}, _opts) do
@@ -484,7 +483,7 @@ defmodule ReqSSRF do
   end
 
   defp run_check(request, opts) do
-    case check(request.url, opts) do
+    case do_check(request.url, opts) do
       :ok ->
         request
 
