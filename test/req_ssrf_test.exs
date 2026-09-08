@@ -207,8 +207,12 @@ defmodule ReqSSRFTest do
     end
 
     test "refuses a name that does not resolve within the timeout" do
-      assert ReqSSRF.check("http://example.com/", timeout: 0) ==
-               {:error, :resolution_failed}
+      resolver = fn _host, _family, _timeout -> Process.sleep(:infinity) end
+
+      assert ReqSSRF.check("http://example.com/",
+               resolver: resolver,
+               timeout: 20
+             ) == {:error, :resolution_failed}
     end
 
     test "does not apply the timeout to an address literal" do
@@ -568,10 +572,12 @@ defmodule ReqSSRFTest do
     test "halts a request whose host does not resolve in time" do
       Req.Test.stub(__MODULE__, fn conn -> Req.Test.text(conn, "hello") end)
 
+      resolver = fn _host, _family, _timeout -> Process.sleep(:infinity) end
+
       request =
         [plug: {Req.Test, __MODULE__}]
         |> Req.new()
-        |> ReqSSRF.attach(timeout: 0)
+        |> ReqSSRF.attach(resolver: resolver, timeout: 20)
 
       assert {:error, %BlockedError{reason: :resolution_failed}} =
                Req.get(request, url: "http://example.com/")
