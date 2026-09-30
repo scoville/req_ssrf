@@ -82,7 +82,7 @@ defmodule ReqSSRF.MixProject do
     [
       {:benchee, "== 1.5.0", only: :dev},
       {:credo, "== 1.7.19", only: [:dev, :test], runtime: false},
-      {:dialyxir, "== 1.4.7", only: [:dev, :test], runtime: false},
+      {:dialyxir, "== 1.4.8", only: [:dev, :test], runtime: false},
       {:ex_doc, "== 0.40.3", only: [:dev, :test], runtime: false},
       {:excoveralls, "== 0.18.5", only: :test},
       {:inet_cidr, "~> 1.0"},
