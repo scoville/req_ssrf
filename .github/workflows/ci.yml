@@ -20,7 +20,7 @@ concurrency:
 jobs:
   test-elixir:
     name: Elixir tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -72,7 +72,7 @@ jobs:
 
   test-versions:
     name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     timeout-minutes: 10
     strategy:
       matrix:
@@ -116,7 +116,7 @@ jobs:
 
   matrix-results:
     if: ${{ always() }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     name: Elixir version tests
     timeout-minutes: 5
     needs:
